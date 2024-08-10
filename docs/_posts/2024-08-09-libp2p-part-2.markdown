@@ -194,4 +194,4 @@ enter the other peer: 12D3KooWGAby4kc3m3K3Sx4BF61tDT8q2r8zwSkkhgeuq3KwjPoF
 hello from p2
 {% endhighlight %}
 
-In the next part, we will work more with Transports, to build a network of peers and we will include more features that are necessary for a libp2p swarm.
+In part 3, we will create a multi-node swarm.

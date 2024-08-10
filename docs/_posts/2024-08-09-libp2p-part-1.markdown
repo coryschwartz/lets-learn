@@ -179,5 +179,19 @@ this message will be signed by our private key
 signed by 12D3KooWMbtpvEx9Msos21r5LfJAfaz4aFaurhDxixjMaArtb3DG
 {% endhighlight %}
 
+## Peers and your connections to them
 
-In part 2, we will create multiple-peer networks
+One thing that might give some clarity about what a peer ID is and how it might be used in libp2p is the AddrInfo struct. No, not the addrinfo you know and love from C sockets. I'm
+talking about libp2p AddrInfo, which is found [here][addrinfo]. Notice the relationship between the peer ID and the peer's addresses. Each peer might be reachable using
+any of several addresses. We'll see a lot more of these later on.
+
+{% highlight go %}
+type AddrInfo struct {
+	ID    ID
+	Addrs []ma.Multiaddr
+}
+{% endhighlight %}
+
+In part 2, we will create connections betwen multiple hosts
+
+[addrinfo] https://github.com/libp2p/go-libp2p/blob/master/core/peer/addrinfo.go#L11
