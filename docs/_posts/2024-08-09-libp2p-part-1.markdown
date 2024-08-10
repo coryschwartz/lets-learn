@@ -194,4 +194,4 @@ type AddrInfo struct {
 
 In part 2, we will create connections betwen multiple hosts
 
-[addrinfo] https://github.com/libp2p/go-libp2p/blob/master/core/peer/addrinfo.go#L11
+[addrinfo]: https://github.com/libp2p/go-libp2p/blob/master/core/peer/addrinfo.go#L11
