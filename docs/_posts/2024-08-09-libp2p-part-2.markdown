@@ -1,0 +1,197 @@
+---
+layout: post
+title:  "libp2p part 2"
+date:   2024-08-09 00:00:00 +0000
+categories: technology p2p
+---
+
+In part 2, we are going to be making connections. We will start with what I think are the most basic components and work our way up.
+
+The first concept I want to introduce is the multistream protocol muxer.
+
+The muxer I'm about to demonstrate works a bit like a web server framework. There is a listener which accpets and depending on what the
+client selects, an appropriate handler is dispatched.
+
+Now, if you have any familiarity with the OSI model, it might seem strange something similar to a web server framework might be a basic
+component. However, you must remember that libp2p is an overlay network that runs on top of the existing protocols. We're all layer 7 here.
+Besides, in my reading the libp2p code, many of the concepts are difficult to parse into neat layers.
+
+In my opinion, the multistream protocol is a good place to start. It is a protocol multiplexer that sits on top of a familiar protocol like TCP
+and dispatches protocol handlers. Later on, libp2p will be running multiple of these protocols.
+
+Here is our server. It listens on a TCP socket, and the client can select from two different "protocols". The "protocols" are simply a string
+identifier that the server uses to dispatch the correct handler. See, I told you it looks a lot like a web framework!
+
+{% highlight go %}
+package main
+
+import (
+        "github.com/multiformats/go-multistream"
+        "io"
+        "net"
+)
+
+func main() {
+        muxer := multistream.NewMultistreamMuxer[string]()
+        muxer.AddHandler("/p1/0.0.1", p1Handler)
+        muxer.AddHandler("/p2/0.0.1", p2Handler)
+
+        listener, _ := net.Listen("tcp", "0.0.0.0:1111")
+        conn, _ := listener.Accept()
+        muxer.Handle(conn)
+}
+
+func p1Handler(protocol string, rwc io.ReadWriteCloser) error {
+        rwc.Write([]byte("hello from p1"))
+        rwc.Close()
+        return nil
+}
+
+func p2Handler(protocol string, rwc io.ReadWriteCloser) error {
+        rwc.Write([]byte("hello from p2"))
+        rwc.Close()
+        return nil
+}
+{% endhighlight %}
+
+
+The client is just as simple. This client connects to the server's TCP socket and it selects which protocol it wants.
+Just like many web frameworks, the client and the handler are able to communicate with each other through a bi-directional stream.
+In this simple example, it simply requests to be handled by protocol "/p2/0.0.1", and it prints the response to the terminal.
+
+{% highlight go %}
+package main
+
+import (
+        "fmt"
+        "github.com/multiformats/go-multistream"
+        "io"
+        "net"
+)
+
+func main() {
+        conn, _ := net.Dial("tcp", "localhost:1111")
+        _ = multistream.SelectProtoOrFail("/p2/0.0.1", conn)
+        read, _ := io.ReadAll(conn)
+        fmt.Println(string(read))
+
+{% endhighlight %}
+
+{% highlight shell %}
+$ go run main.go
+hello from p2
+{% endhighlight %}
+
+## Securing connections with libp2p transports
+
+In libp2p, a "transport" represents a way to connect to a peer. A transport may represent a real underlying protocol, like TCP or Websocket connection,
+and can be upgraded to secure versions of those protocols with security transports.
+
+Here, we build on our previous example, to secure these connections using peerids. In a real p2p network, there will be a protocol for discovering peers
+to get the content you want. We'll get there, but we aren't there yet. For now, we are simply connecting our two nodes together and we will verify
+that we are connected to the right host using their peer ID.
+
+As for peer exchange? Well, we are going to do it the way the cavemen did it, by copying and pasting the peer ID betwen terminals.
+
+For our server, we will create a secured transport using the noise protocol. Notice that we create a transport with our own peerID, and using
+the transport, we create a secured connection with the other peer's ID.
+
+{% highlight go %}
+package main
+
+import (
+        "context"
+        "crypto/rand"
+        "fmt"
+        "github.com/libp2p/go-libp2p/core/crypto"
+        "github.com/libp2p/go-libp2p/core/peer"
+        "github.com/libp2p/go-libp2p/p2p/security/noise"
+        "github.com/multiformats/go-multistream"
+        "io"
+        "net"
+)
+
+func main() {
+
+        priv, pub, _ := crypto.GenerateEd25519Key(rand.Reader)
+        peerid, _ := peer.IDFromPublicKey(pub)
+        fmt.Println("peer id", peerid)
+        fmt.Printf("enter the other peer: ")
+        var other string
+        fmt.Scanln(&other)
+        otherPeer, _ := peer.Decode(other)
+
+        secTransport, _ := noise.New(noise.ID, priv, nil)
+
+        listener, _ := net.Listen("tcp", "0.0.0.0:1111")
+        conn, _ := listener.Accept()
+
+        sconn, _ := secTransport.SecureInbound(context.Background(), conn, otherPeer)
+
+        muxer := multistream.NewMultistreamMuxer[string]()
+        muxer.AddHandler("/p1/0.0.1", p1Handler)
+        muxer.AddHandler("/p2/0.0.1", p2Handler)
+
+        muxer.Handle(sconn)
+}
+
+func p1Handler(protocol string, rwc io.ReadWriteCloser) error {
+        rwc.Write([]byte("hello from p1"))
+        rwc.Close()
+        return nil
+}
+
+func p2Handler(protocol string, rwc io.ReadWriteCloser) error {
+        rwc.Write([]byte("hello from p2"))
+        rwc.Close()
+        return nil
+}
+{% endhighlight %}
+
+likewise, our client will also use a noise-secured transport to generate a connection that can only be secured if the remote peer ID is valid.
+
+{% highlight go %}
+package main
+
+import (
+        "context"
+        "crypto/rand"
+        "fmt"
+        "github.com/libp2p/go-libp2p/core/crypto"
+        "github.com/libp2p/go-libp2p/core/peer"
+        "github.com/libp2p/go-libp2p/p2p/security/noise"
+        "github.com/multiformats/go-multistream"
+        "io"
+        "net"
+)
+
+func main() {
+        priv, pub, _ := crypto.GenerateEd25519Key(rand.Reader)
+        peerid, _ := peer.IDFromPublicKey(pub)
+        fmt.Println("peer id", peerid)
+        fmt.Printf("enter the other peer: ")
+        var other string
+        fmt.Scanln(&other)
+        otherPeer, _ := peer.Decode(other)
+
+        secTransport, _ := noise.New(noise.ID, priv, nil)
+
+        conn, _ := net.Dial("tcp", "localhost:1111")
+        sconn, _ := secTransport.SecureOutbound(context.Background(), conn, otherPeer)
+
+        multistream.SelectProtoOrFail("/p2/0.0.1", sconn)
+
+        read, _ := io.ReadAll(sconn)
+
+        fmt.Println(string(read))
+}
+{% endhighlight %}
+
+{% highlight shell %}
+$ go run main.go
+peer id 12D3KooWT1jwk5UzA8iB779XmfPP6XkQLieneHmCpDeyK5yPZUEo
+enter the other peer: 12D3KooWGAby4kc3m3K3Sx4BF61tDT8q2r8zwSkkhgeuq3KwjPoF
+hello from p2
+{% endhighlight %}
+
+In the next part, we will work more with Transports, to build a network of peers and we will include more features that are necessary for a libp2p swarm.
