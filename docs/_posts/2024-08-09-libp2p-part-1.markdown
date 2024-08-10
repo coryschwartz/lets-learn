@@ -1,0 +1,183 @@
+---
+layout: post
+title:  "libp2p part 1"
+date:   2024-08-09 00:00:00 +0000
+categories: technology p2p
+---
+
+In a series of posts, we will explore libp2p with some code examples.
+
+For the uninitiated, libp2p is a modular network stack that provides peer-to-peer communication. It is a part of the IPFS project and is used in many other projects like Ethereum 2.0, Filecoin, and many others.
+
+The series will give short code snipits that demonstrate some concept so the concepts can be combined in more useful and complex ways later on.
+
+For this first article, we are zooming in on peer IDS. We will look at what they are in a P2P network, their relationship to p2p hosts, and how to use them to sign and verify messages.
+
+# Get started
+
+To start off, let's create a basic host. This code snipit creates a p2p host with only default options.
+It doesn't do much of anything yet, but it's a start.
+
+This program simply creates a new libp2p host and prints its ID.
+
+{% highlight go %}
+package main
+
+import (
+        "fmt"
+        "github.com/libp2p/go-libp2p"
+)
+
+func main() {
+        host, err := libp2p.New()
+        if err != nil {
+                panic(err)
+        }
+        fmt.Println("HI!", host.ID())
+
+}
+{% endhighlight %}
+
+Run this program more than once and it will generate a new ID every time.
+You'll also might see log line if there are any issues with resources or buffer sizes. I've edited those out to focus just on the IDs.
+
+{% highlight shell %}
+$ for i in {1..10}; do
+  go run main.go
+done
+
+HI! 12D3KooWAKrTPdVgsDGe63bwyfhC7XKdPj4YWvMEVnoc6Prc95FE
+HI! 12D3KooWCQp5ZDdT5T7w7c22n4KXHJHr2yw4pVJRgcrzoutkEEk4
+HI! 12D3KooW9zs6nQM3QdeRCqwHDKekQEU2px9DPXtKEAVzXPugsyhP
+HI! 12D3KooWNC9FgrmbqPfU4AcEKYwt3zZ9E4ggLPAQF7tMvRZLhTgC
+HI! 12D3KooWQxq9Mb88BWEUQLEwDtXAg14LbSVG5QT9DBU4jouPMEty
+HI! 12D3KooWJ7Ujp4X44ApBFXh1ixfm4FpoGTAS3Q17M7aHnBMoef4W
+HI! 12D3KooWBHRQhgW83FHUiqbyMKPv6SL5r8KAwGcy8b5MbZpiVwgo
+HI! 12D3KooWRCbMHjn3wXDHUJvnSytMu3h1FTRXfTXdNqvjMYrcfhBF
+HI! 12D3KooWLsHw6YfYYSnJHnpgotSVFSoxcjwLeFj4hhzgCKSNsAPK
+HI! 12D3KooWMowEV44mf4D7grFChnsGqFKrmE4AmdiiCPzvUgVgCGa9
+{% endhighlight %}
+
+# what is a Peer ID?
+
+A peer ID is a unique identifier for the peer (host) regardless of the transport or address. 
+
+That desrerves a bit more explanation. When you use a standard service on the Internet, like a web server,
+you typically use a domain name to access it. The domain name resolves to an IP address, and the IP address
+is used to route packets to the server. In this way, the address serves as the identifier of the server.
+
+libp2p flips this paradigm. Nodes have a peer ID that is derived from public key cryptography. The ID serves
+as a fingerprint that distinguishes the peer from any other on the network. It is frequently the case in libp2p
+networks that a node by by accessible through several routes. For example, it might have more than one IP address,
+or have an HTTPS websocket, or Tor, or a variety of other mechanisms that a peer might connect, and the peerID
+lets other peers know they have are interacting with a particular peer. Similarly, a p2p node may be a laptop or
+portalbe computer that may have different IP addresses at different times, but we can know it is the same peer
+because of its peer ID.
+
+
+## peer IDs are derived from crypto
+
+The following code snipit demonstrates the relationship between cryptographic keys and peer IDs.
+
+First, we start by generating a new cryptographic pair. we can see that the string form of the peer ID is simply
+an encoding of the public key. precisely, it's the public key encoded in a protobuf, represented as an IDENTITY
+multihash, and then base58 encoded. Let's take a look at how peer IDs come from cryptographic keys.
+
+{% highlight go %}
+package main
+
+import (
+        "fmt"
+
+        "crypto/rand"
+        "github.com/libp2p/go-libp2p/core/crypto"
+        "github.com/libp2p/go-libp2p/core/peer"
+        "github.com/mr-tron/base58/base58"
+        "github.com/multiformats/go-multihash"
+)
+
+func main() {
+        // generate a public and private key
+        priv, pub, _ := crypto.GenerateEd25519Key(rand.Reader)
+
+        privraw, _ := priv.Raw()
+        pubraw, _ := pub.Raw()
+        fmt.Println("Private Key:", base58.Encode(privraw))
+        fmt.Println("Public Key:", base58.Encode(pubraw))
+
+        // marshal, hash, and print
+        pubProto, _ := crypto.MarshalPublicKey(pub)
+        hash, _ := multihash.Sum(pubProto, multihash.IDENTITY, -1)
+        fmt.Println("Hash of public key protobuf:", base58.Encode(hash))
+
+        // now let's create the peer ID the normal way
+        pubid, _ := peer.IDFromPublicKey(pub)
+        fmt.Println("normal peer ID:", pubid.String())
+}
+{% endhighlight %}
+
+as we run this program, observe that the peer ID generated in the usual way (IDFromPublicKey) is the same as our encoded multihash we generated ourselves from the public key.
+
+{% highlight shell %}
+$ go run main.go 
+Private Key: 2M7SGRZmxEwTuJf5sXe5cW9UEqSBys3pKALLzREiwdwmq12xz7n5D7tAUoqr2zz13vfziSTLB7VXCh6UQosKc18k
+Public Key: CSUqGT1VH1CHiC96mwrRhfuGEDYv1QQ5vH3DXzDYwqMr
+Hash of public key protobuf: 12D3KooWMFr11abCTuTn85eXQYbmUTz6iYbZ36UZssQEuyNSqn5n
+normal peer ID: 12D3KooWMFr11abCTuTn85eXQYbmUTz6iYbZ36UZssQEuyNSqn5n
+{% endhighlight %}
+
+
+## signing messages with peer IDs.
+
+One thing that's nice about cryptographic peer IDs is that you can verify the authenticity of a message without
+needing to trust the source. This is a very importaint trait of a p2p network that is filled with untrustworthy nodes
+on the Internet. Remember, that messages on the P2P netowrk will be routed through multiple hosts who may be malicious or
+working improperly, so it's important that we can verify messages even without a TLS tunnel to the source.
+
+In this code, imagine we have two peers. The first peer will generate key pairs, and a public peer ID.
+It will sign a message and send it out on the network. The second peer will receive the message and verify the signature.
+
+{% highlight go %}
+package main
+
+import (
+        "fmt"
+
+        "crypto/rand"
+        "github.com/libp2p/go-libp2p/core/crypto"
+        "github.com/libp2p/go-libp2p/core/peer"
+)
+
+func main() {
+        // generate a public and private key
+        // We can use our private key to sign a message
+        priv, pub, _ := crypto.GenerateEd25519Key(rand.Reader)
+        message := []byte("this message will be signed by our private key")
+        sig, _ := priv.Sign(message)
+
+        // our peer ID is public information and has our public key.
+        publicID, _ := peer.IDFromPublicKey(pub)
+
+        // another party derives the public key from the peer ID
+        // imagine the message and it's signature being transmitted
+        // to a remote peer who wants to verify the message was indeed
+        // sent by the peer ID owner.
+        pubkey, _ := publicID.ExtractPublicKey()
+        verified, _ := pubkey.Verify(message, sig)
+        if verified {
+                fmt.Println("signature verified")
+                fmt.Println(string(message))
+                fmt.Println("signed by", publicID)
+        }
+}
+{% endhighlight %}
+
+{% highlight shell %}
+$ go run main.go
+signature verified
+this message will be signed by our private key
+signed by 12D3KooWMbtpvEx9Msos21r5LfJAfaz4aFaurhDxixjMaArtb3DG
+{% endhighlight %}
+
+
+In part 2, we will create multiple-peer networks

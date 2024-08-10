@@ -1,6 +1,6 @@
 .PHONY: serve
 serve:
-	bundle exec jekyll serve --livereload
+	cd docs && bundle exec jekyll serve --livereload
 
 # This is needed if you're going to be running jekyll locally.
 # You need to install ruby and ruby devel packages and will
