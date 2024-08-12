@@ -9,3 +9,8 @@ serve:
 .PHONY: install-gems
 install-gems:
 	gem install bundler jekyll
+
+# Update ruby gems
+.PHONY: update
+update:
+	cd docs && bundle update
